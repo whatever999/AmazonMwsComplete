@@ -55,16 +55,16 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
   const REQUEST_TYPE = "POST";
 
   const MWS_CLIENT_VERSION = '2016-09-21';
-  
+
   private $defaultHeaders = array();
 
   private $responseBodyContents;
-  
+
   // "streaming" responses that are errors will be send to this handle;
   private $errorResponseBody;
 
   private $headerContents;
-  
+
   private $curlClient;
 
   /**
@@ -100,9 +100,9 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
 
     $this->awsAccessKeyId = $awsAccessKeyId;
     $this->awsSecretAccessKey = $awsSecretAccessKey;
-    if (!is_null($config)) 
+    if (!is_null($config))
       $this->config = array_merge($this->config, $config);
-     
+
     $this->setUserAgentHeader($applicationName, $applicationVersion, $attributes);
   }
 
@@ -146,11 +146,11 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
     if (is_null($applicationName) || $applicationName === "") {
       throw new InvalidArgumentException('$applicationName cannot be null.');
     }
-     
+
     if (is_null($applicationVersion) || $applicationVersion === "") {
       throw new InvalidArgumentException('$applicationVersion cannot be null.');
     }
-     
+
     $userAgent =
     $this->quoteApplicationName($applicationName)
         . '/'
@@ -168,7 +168,7 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
       if (is_null($value) || $value === '') {
         throw new InvalidArgumentException("Value for $key cannot be null or empty.");
       }
-        
+
       $userAgent .= '; '
         . $this->quoteAttributeName($key)
         . '='
@@ -763,11 +763,11 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
     $response->setResponseHeaderMetadata($httpResponse['ResponseHeaderMetadata']);
     return $response;
   }
-  
+
   // Private API ------------------------------------------------------------//
 
   /**
-   * Get the base64 encoded md5 value of $data. If $data is a memory or temp file stream, this 
+   * Get the base64 encoded md5 value of $data. If $data is a memory or temp file stream, this
    * method dumps the contents into a string before calculating the md5. Hence, this method
    * shouldn't be used for large memory streams.
    *
@@ -798,16 +798,16 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
    */
   private function invoke(array $converted, $dataHandle = null)
   {
-  	
+
   	$parameters = $converted[CONVERTED_PARAMETERS_KEY];
     $actionName = $parameters["Action"];
     $response = array();
     $responseBody = null;
     $statusCode = 200;
-    
+
     /* Submit the request and read response body */
     try {
-    	
+
     // Ensure the endpoint URL is set.
     if (empty($this->config['ServiceURL'])) {
         throw new MarketplaceWebService_Exception(
@@ -824,36 +824,36 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
       do {
         try {
           $response = $this->performRequest($actionName, $converted, $dataHandle);
-          
+
           $httpStatus = $response['Status'];
-          
+
           switch ($httpStatus) {
           	case 200:
           		$shouldRetry = false;
           		break;
-          		
+
           	case 500:
           	case 503:
           		require_once (dirname(__FILE__) . '/Model/ErrorResponse.php');
 		          $errorResponse = MarketplaceWebService_Model_ErrorResponse::fromXML($response['ResponseBody']);
-		          
+
 		          // We will not retry throttling errors since this would just add to the throttling problem.
 		          $shouldRetry = ($errorResponse->getError()->getCode() === 'RequestThrottled')
 		            ? false : true;
-		              
+
 		          if ($shouldRetry && $retries <= $this->config['MaxErrorRetry']) {
-		            $this->pauseOnRetry(++$retries); 
+		            $this->pauseOnRetry(++$retries);
 		          } else {
 		            throw $this->reportAnyErrors($response['ResponseBody'], $response['Status'], $response['ResponseHeaderMetadata']);
 		          }
           		break;
-          		
+
           	default:
           		$shouldRetry = false;
           		throw $this->reportAnyErrors($response['ResponseBody'], $response['Status'], $response['ResponseHeaderMetadata']);
           		break;
           }
-          
+
           /* Rethrow on deserializer error */
         } catch (Exception $e) {
           require_once (dirname(__FILE__) . '/Exception.php');
@@ -878,10 +878,10 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
     $exProps = array();
     $exProps["StatusCode"] = $status;
     $exProps["ResponseHeaderMetadata"] = $responseHeaderMetadata;
-    
+
     libxml_use_internal_errors(true);  // Silence XML parsing errors
     $xmlBody = simplexml_load_string($responseBody);
-    
+
     if ($xmlBody !== false) {  // Check XML loaded without errors
       $exProps["XML"] = $responseBody;
       $exProps["ErrorCode"] = $xmlBody->Error->Code;
@@ -891,7 +891,7 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
     } else { // We got bad XML in response, just throw a generic exception
       $exProps["Message"] = "Internal Error";
     }
-    
+
     require_once (dirname(__FILE__) . '/Exception.php');
     return new MarketplaceWebService_Exception($exProps);
   }
@@ -927,31 +927,34 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
 
     require_once (dirname(__FILE__) . '/Model/ResponseHeaderMetadata.php');
     $responseHeaderMetadata = new MarketplaceWebService_Model_ResponseHeaderMetadata(
-              $parsedHeader['x-mws-request-id'],
-              $parsedHeader['x-mws-response-context'],
-              $parsedHeader['x-mws-timestamp']);
+        $parsedHeader['x-mws-request-id'],
+        $parsedHeader['x-mws-response-context'],
+        $parsedHeader['x-mws-timestamp'],
+        $parsedHeader['x-mws-quota-max'],
+        $parsedHeader['x-mws-quota-remaining'],
+        $parsedHeader['x-mws-quota-resetson']);
 
     $code = (int) curl_getinfo($this->curlClient, CURLINFO_HTTP_CODE);
-    
+
     // Only attempt to verify the Content-MD5 value if the request was successful.
     if (RequestType::getRequestType($action) === RequestType::POST_DOWNLOAD) {
     	if ($code != 200) {
     	  rewind($this->errorResponseBody);
-        $httpResponse =  stream_get_contents($this->errorResponseBody);	
+        $httpResponse =  stream_get_contents($this->errorResponseBody);
     	} else {
         $this->verifyContentMd5($this->getParsedHeader($parsedHeader,'Content-MD5'), $dataHandle);
         $httpResponse = $this->getDownloadResponseDocument($action, $parsedHeader);
     	}
     }
-    
+
     // Cleanup open streams and cURL instance.
     @fclose($this->headerContents);
     @fclose($this->errorResponseBody);
     curl_close($this->curlClient);
 
-    
+
     return array (
-        'Status' => $code, 
+        'Status' => $code,
         'ResponseBody' => $httpResponse,
         'ResponseHeaderMetadata' => $responseHeaderMetadata);
   }
@@ -978,7 +981,7 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
       require_once (dirname(__FILE__) . '/Exception.php');
       throw new MarketplaceWebService_Exception(
           array(
-            'Message' => 'Received Content-MD5 = ' . $receivedMd5Hash . ' but expected ' . $expectedMd5Hash, 
+            'Message' => 'Received Content-MD5 = ' . $receivedMd5Hash . ' but expected ' . $expectedMd5Hash,
             'ErrorCode' => 'ContentMD5DoesNotMatch'));
     }
   }
@@ -1020,7 +1023,7 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
    */
   private function responseCallback($ch, $string) {
   	$httpStatusCode = (int) curl_getinfo($this->curlClient, CURLINFO_HTTP_CODE);
-  	
+
   	// For unsuccessful responses, i.e. non-200 HTTP responses, we write the response body
   	// into a separate stream.
   	$responseHandle;
@@ -1029,7 +1032,7 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
   	} else {
   		$responseHandle = $this->errorResponseBody;
   	}
-  	
+
     return fwrite($responseHandle, $string);
   }
 
@@ -1044,7 +1047,7 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
     $bytesWritten = fwrite($this->headerContents, $string);
     return $bytesWritten;
   }
-  
+
   /**
    * Gets cURL options common to all MWS requests.
    * @return unknown_type
@@ -1060,7 +1063,7 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
       CURLOPT_SSL_VERIFYHOST => 2
     );
   }
-  
+
   /**
    * Configures specific curl options based on the request type.
    *
@@ -1071,7 +1074,7 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
    */
   private function configureCurlOptions($action, array $converted, $streamHandle = null) {
     $curlOptions = $this->getDefaultCurlOptions();
-    
+
     if (!is_null($this->config['ProxyHost'])) {
       $proxy = $this->config['ProxyHost'];
       $proxy .= ':' . ($this->config['ProxyPort'] == -1 ? '80' : $this->config['ProxyPort']);
@@ -1099,11 +1102,11 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
       $serviceUrl .= '?' . $this->getParametersAsString($converted[CONVERTED_PARAMETERS_KEY]);
 
       $curlOptions[CURLOPT_URL] = $serviceUrl;
-      
+
       $header[] = 'Expect: ';
       $header[] = 'Accept: ';
       $header[] = 'Transfer-Encoding: chunked';
-      
+
       $curlOptions[CURLOPT_HTTPHEADER] = array_merge($header, $converted[CONVERTED_HEADERS_KEY]);
 
       rewind($streamHandle);
@@ -1153,7 +1156,7 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
     $response .= '</RequestId>';
     $response .= '</ResponseMetadata>';
     $response .= '</' . $responseType . 'Response>';
-    
+
     return $response;
   }
 
@@ -1267,7 +1270,7 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
     $data .= "\n";
     uksort($parameters, 'strcmp');
     $data .= $this->getParametersAsString($parameters);
-    
+
     return $data;
   }
 
@@ -1308,8 +1311,8 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
         throw new Exception("Invalid date value.");
       }
     }
-    
-    return $dateTime->format(DATE_ISO8601);  
+
+    return $dateTime->format(DATE_ISO8601);
   }
 
     /**
@@ -1433,7 +1436,7 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
 	$marketplaceIdList = $request->getMarketplaceIdList();
         foreach  ($marketplaceIdList->getId() as $idIndex => $id) {
           $parameters['MarketplaceIdList.Id.'.($idIndex + 1)] =  $id;
-        }       
+        }
       }
       if ($request->isSetFeedType()) {
         $parameters['FeedType'] =  $request->getFeedType();
@@ -1578,7 +1581,7 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
 	$marketplaceIdList = $request->getMarketplaceIdList();
         foreach  ($marketplaceIdList->getId() as $idIndex => $id) {
           $parameters['MarketplaceIdList.Id.'.($idIndex + 1)] =  $id;
-        }       
+        }
       }
       if ($request->isSetReportType()) {
         $parameters['ReportType'] =  $request->getReportType();
@@ -1935,7 +1938,7 @@ class MarketplaceWebService_Client implements MarketplaceWebService_Interface
       if ($request->isSetMWSAuthToken()) {
         $parameters['MWSAuthToken'] = $request->getMWSAuthToken();
       }
-      
+
 	  return array(CONVERTED_PARAMETERS_KEY => $parameters, CONVERTED_HEADERS_KEY => $this->defaultHeaders);
     }
 
